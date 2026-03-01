@@ -1,0 +1,118 @@
+# ==============================================================================
+# OpenClaw Agent — Docker Compose Template
+# ==============================================================================
+# Copy this file and fill in the values for each instance you want to run.
+# Rename the service, container_name, and port mappings per instance.
+#
+# To reset config and let init regenerate everything fresh:
+#   docker compose down
+#   rm -rf ./data
+#   docker compose up
+#
+# To force only the openclaw.json to regenerate (e.g. after changing model):
+#   rm ./data/openclaw.json && docker compose restart
+# ==============================================================================
+
+services:
+
+  openclaw-agent:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: openclaw-agent         # Change per instance
+    ports:
+      - "5000:3000"                         # OpenClaw gateway UI + API
+      - "3001:3001"                         # MCP proxy (for Open WebUI etc.)
+    command: >
+      sh -c "node /app/init-openclaw.js &&
+      npm install --prefix /home/node/.openclaw/workspace &&
+      (node /home/node/.openclaw/workspace/node_modules/.bin/mcp-proxy
+        --port 3001
+        --host 0.0.0.0
+        -- node /home/node/.openclaw/workspace/mcp-bridge.js &) &&
+      openclaw gateway run --bind lan"
+    volumes:
+      - ./init-openclaw.js:/app/init-openclaw.js:ro
+      - ./data:/home/node/.openclaw          # Persists all config + workspace state
+    environment:
+
+      # ── System ──────────────────────────────────────────────────────────────
+      - HOME=/home/node
+      - NODE_ENV=production
+      - TZ=UTC
+
+      # ── Model ───────────────────────────────────────────────────────────────
+      # The model ID as your OpenAI-compatible provider knows it.
+      - LLM_MODEL=gemini-2-flash
+
+      # ── LLM Provider (OpenAI-compatible) ────────────────────────────────────
+      # Point this at Ollama, LiteLLM, vLLM, OpenRouter, etc.
+      - OPENAI_API_BASE=http://host.docker.internal:4000
+      - OPENAI_API_KEY=your-api-key-here
+
+      # ── OpenClaw Gateway ────────────────────────────────────────────────────
+      # The token used to authenticate against the gateway API.
+      # Generate with: openssl rand -hex 32
+      - OPENCLAW_GATEWAY_TOKEN=your-gateway-token-here
+
+      # Comma-separated list of trusted reverse proxy IPs (e.g. Nginx, Traefik).
+      # Default is 127.0.0.1 only. Add your proxy IP if behind one.
+      # - OPENCLAW_TRUSTED_PROXIES=127.0.0.1,10.0.0.1
+
+      # ── Web Search (Brave) ──────────────────────────────────────────────────
+      # Get a free key at https://brave.com/search/api/
+      - BRAVE_API_KEY=your-brave-api-key-here
+
+      # ── Telegram Channel ────────────────────────────────────────────────────
+      # Leave TELEGRAM_BOT_TOKEN unset/empty to disable Telegram entirely.
+      #
+      # Get a bot token from @BotFather on Telegram.
+      - TELEGRAM_BOT_TOKEN=
+      #
+      # dmPolicy controls who can DM the bot:
+      #   pairing   — (default) user sends /start, you approve with:
+      #               docker exec -it openclaw-agent openclaw pairing approve telegram <code>
+      #   allowlist — only numeric user IDs in TELEGRAM_ALLOW_FROM can DM
+      #   open      — anyone can DM immediately (not recommended)
+      - TELEGRAM_DM_POLICY=pairing
+      #
+      # Only used when TELEGRAM_DM_POLICY=allowlist.
+      # Comma-separated Telegram numeric user IDs.
+      # Find yours by messaging @userinfobot on Telegram.
+      - TELEGRAM_ALLOW_FROM=
+
+      # ── MCP Bridge ──────────────────────────────────────────────────────────
+      # Port the MCP HTTP proxy listens on inside the container.
+      # Must match the right side of the ports mapping above (default 3001).
+      - MCP_PORT=3001
+
+      # How long (ms) to wait for the OpenClaw agent to respond via MCP tools.
+      - AGENT_TIMEOUT_MS=120000
+
+      # Base URL the MCP bridge uses to reach the OpenClaw gateway.
+      # Inside the container this is always localhost on port 3000.
+      - OPENCLAW_BASE_URL=http://localhost:3000
+
+      # ── Extra MCP Server env vars ────────────────────────────────────────────
+      # Add any env vars your MCP servers need here. Examples:
+      # - GITHUB_TOKEN=
+      # - NOTION_API_KEY=
+      # - LINEAR_API_KEY=
+      # - JIRA_API_TOKEN=
+      # - JIRA_BASE_URL=
+      # - SLACK_BOT_TOKEN=
+      # - SLACK_APP_TOKEN=
+      # - GOOGLE_CLIENT_ID=
+      # - GOOGLE_CLIENT_SECRET=
+      # - GOOGLE_REFRESH_TOKEN=
+      # - POSTGRES_CONNECTION_STRING=
+      # - MYSQL_CONNECTION_STRING=
+      # - REDIS_URL=
+      # - S3_BUCKET=
+      # - AWS_ACCESS_KEY_ID=
+      # - AWS_SECRET_ACCESS_KEY=
+      # - AWS_REGION=
+
+    restart: unless-stopped
